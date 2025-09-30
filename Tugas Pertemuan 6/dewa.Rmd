@@ -1,0 +1,147 @@
+---
+title: "TPG"
+author: "Dewa Rizky Meidiva Pratama"
+date: "2025-09-24"
+output: html_document
+---
+
+```{r}
+library(MASS)
+library(Hotelling)
+
+set.seed(30)
+
+# Jumlah sampel
+n_stat <- 25
+n_ilkom <- 25
+
+# Parameter (mu & sigma) dari seed unik
+mu_stat <- c(75, 65)
+mu_ilkom <- c(70, 80)
+
+Sigma <- matrix(c(100, 30,
+                  30, 120), 2)
+
+# Data acak multivariat normal
+data_stat <- mvrnorm(n_stat, mu = mu_stat, Sigma = Sigma)
+data_ilkom <- mvrnorm(n_ilkom, mu = mu_ilkom, Sigma = Sigma)
+
+# Satukan jadi data frame
+data_mahasiswa <- data.frame(
+  Jurusan = rep(c("Statistika", "IlmuKomputer"), each = 25),
+  Matematika = c(data_stat[,1], data_ilkom[,1]),
+  Pemrograman = c(data_stat[,2], data_ilkom[,2])
+)
+
+head(data_mahasiswa)
+```
+1. Perbandingan Dua Vektor Nilai Tengah (Saling Bebas, Ragam Sama)
+```{r}
+# Pisahkan data per jurusan
+group_stat <- subset(data_mahasiswa, Jurusan == "Statistika", select = c(Matematika, Pemrograman))
+group_ilkom <- subset(data_mahasiswa, Jurusan == "IlmuKomputer", select = c(Matematika, Pemrograman))
+
+# Uji Hotelling T² (independen, ragam sama)
+hasil_hotelling <- hotelling.test(group_stat, group_ilkom)
+hasil_hotelling
+
+```
+terdapat bukti sangat kuat bahwa vektor rata-rata nilai (Matematika & Pemrograman) mahasiswa Statistika berbeda signifikan dengan mahasiswa Ilmu Komputer jika diasumsikan ragam sama.
+
+2. Perbandingan Dua Vektor Nilai Tengah (Berpasangan)
+```{r}
+# Selisih berpasangan
+diff_data <- as.matrix(group_stat - group_ilkom)
+
+n <- nrow(diff_data)      # banyak pasangan
+p <- ncol(diff_data)      # banyak variabel (Matematika, Pemrograman)
+
+# Rata-rata selisih
+mean_diff <- colMeans(diff_data)
+
+# Kovarians dari selisih
+S <- cov(diff_data)
+
+# Statistik Hotelling T²
+T2 <- n * t(mean_diff) %*% solve(S) %*% mean_diff
+
+# Konversi ke F
+F_stat <- ( (n - p) / (p * (n - 1)) ) * T2
+p_value <- 1 - pf(F_stat, p, n - p)
+
+list(T2 = T2, F_stat = F_stat, df1 = p, df2 = n - p, p_value = p_value)
+```
+Artinya, terdapat perbedaan signifikan vektor rata-rata nilai Matematika & Pemrograman mahasiswa Statistika dan Ilmu Komputer pada kondisi sampel berpasangan.
+
+3. Perbandingan Dua Vektor Nilai Tengah (Saling Bebas, Ragam Tidak Sama)
+```{r}
+# Fungsi manual Hotelling T² untuk ragam tidak sama (generalized T²)
+hotelling_unequal <- function(x, y) {
+  n1 <- nrow(x)
+  n2 <- nrow(y)
+  mean1 <- colMeans(x)
+  mean2 <- colMeans(y)
+  S1 <- cov(x)
+  S2 <- cov(y)
+  
+  # Perbedaan mean
+  diff <- mean1 - mean2
+  
+  # Matriks kovarian gabungan (Welch type)
+  S_pool <- (S1/n1 + S2/n2)
+  
+  T2 <- t(diff) %*% solve(S_pool) %*% diff
+  p <- ncol(x)
+  
+  # Approx F distribution (James 1954)
+  df1 <- p
+  df2 <- ( ( (t(diff) %*% solve(S_pool) %*% diff) ) * 0 + n1 + n2 - p - 1 )
+  
+  list(T2 = T2, diff_mean = diff, cov = S_pool)
+}
+
+hasil_unequal <- hotelling_unequal(group_stat, group_ilkom)
+hasil_unequal
+```
+Mahasiswa Statistika dan Ilmu Komputer memiliki vektor rata-rata yang berbeda signifikan.
+Arah perbedaan sama dengan kasus ragam sama: Statistika lebih unggul di Matematika, sedangkan Ilmu Komputer jauh lebih unggul di Pemrograman.
+
+4. Selang Kepercayaan Bonferroni (Ragam Sama)
+```{r}
+# Fungsi Bonferroni CI
+bon = function(mu, S, n, alpha, k){
+  p = length(mu)
+  lower = mu[k] - sqrt(S[k,k]/n) * abs(qt(alpha/(2*p), df=n-1))
+  upper = mu[k] + sqrt(S[k,k]/n) * abs(qt(alpha/(2*p), df=n-1))
+  c(lower = lower, upper = upper)
+}
+
+n1 <- nrow(group_stat)
+n2 <- nrow(group_ilkom)
+
+xbar_stat <- colMeans(group_stat)
+xbar_ilkom <- colMeans(group_ilkom)
+diff_mean <- xbar_stat - xbar_ilkom   # selisih rata-rata
+
+S1 <- cov(group_stat)
+S2 <- cov(group_ilkom)
+S_pooled <- ((n1 - 1) * S1 + (n2 - 1) * S2) / (n1 + n2 - 2)
+
+cov_diff <- S_pooled * (1/n1 + 1/n2)
+
+n_total <- n1 + n2
+cov_m <- cov_diff
+xbar_diff <- diff_mean
+
+bon(xbar_diff, cov_m, n_total, 0.05, 1)  # untuk Matematika
+bon(xbar_diff, cov_m, n_total, 0.05, 2)  # untuk Pemrograman
+```
+Hasil uji Hotelling T² dengan asumsi ragam sama menunjukkan nilai statistik uji sebesar 54.99 dengan derajat bebas 2 dan 47 serta p-value sebesar 1.6 × 10⁻⁸. Karena p-value jauh lebih kecil daripada taraf signifikansi 5%, maka hipotesis nol ditolak. Artinya, terdapat perbedaan yang sangat signifikan antara vektor rata-rata nilai Matematika dan Pemrograman mahasiswa Statistika dan mahasiswa Ilmu Komputer.
+
+Pada kasus sampel berpasangan, hasil perhitungan manual menghasilkan nilai T² sebesar 45.06 yang ekuivalen dengan F sebesar 21.59 dengan derajat bebas 2 dan 23 serta p-value sebesar 5.27 × 10⁻⁶. Nilai p-value yang sangat kecil kembali menunjukkan bahwa hipotesis nol ditolak sehingga terdapat perbedaan signifikan vektor rata-rata kedua kelompok.
+
+Sementara itu, pada kasus saling bebas dengan ragam tidak sama diperoleh nilai T² sebesar 54.99 dengan selisih rata-rata sebesar 3.21 untuk Matematika dan −20.64 untuk Pemrograman. Hasil ini konsisten dengan pengujian sebelumnya dan memberikan bukti bahwa terdapat perbedaan nyata antara kedua jurusan.
+
+Selanjutnya, selang kepercayaan Bonferroni memperkuat kesimpulan tersebut. Untuk mata kuliah Matematika, selisih rata-rata berada pada interval (2.17, 4.25) yang seluruhnya positif sehingga dapat disimpulkan bahwa mahasiswa Statistika memiliki nilai Matematika yang lebih tinggi. Sebaliknya, untuk mata kuliah Pemrograman selisih rata-rata berada pada interval (−21.64, −19.65) yang seluruhnya negatif sehingga mahasiswa Ilmu Komputer memiliki nilai Pemrograman yang lebih tinggi.
+
+Dengan demikian, secara keseluruhan dapat disimpulkan bahwa profil nilai mahasiswa Statistika dan Ilmu Komputer berbeda secara signifikan. Mahasiswa Statistika cenderung lebih unggul dalam Matematika, sedangkan mahasiswa Ilmu Komputer lebih unggul dalam Pemrograman, dan perbedaan tersebut terbukti signifikan secara multivariat.
